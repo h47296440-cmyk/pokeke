@@ -3,70 +3,93 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>現在地取得テスト</title>
+    <title>自動駅訪問ログ</title>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 50px; }
-        #status { margin-bottom: 20px; font-weight: bold; }
-        #result { background: #f0f0f0; padding: 20px; border-radius: 8px; display: inline-block; }
-        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; }
+        #log-container { background: #f9f9f9; border: 1px solid #ddd; padding: 15px; border-radius: 8px; min-height: 200px; }
+        .station-item { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; justify-content: space-between; }
+        .time { color: #888; font-size: 0.8em; }
+        .status { color: #007bff; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2>GPS現在地取得テスト</h2>
-    <p id="status">ボタンを押して位置情報の許可をしてください</p>
+    <h2>🚉 自動駅訪問ログ（テスト）</h2>
+    <p>ステータス: <span id="status" class="status">待機中...</span></p>
     
-    <div id="result">
-        <p>緯度: <span id="latitude">---</span></p>
-        <p>経度: <span id="longitude">---</span></p>
+    <div id="log-container">
+        <strong>訪れた駅リスト:</strong>
+        <div id="station-list">
+            </div>
     </div>
-    
-    <br><br>
-    <button onclick="getLocation()">現在地を取得する</button>
 
     <script>
-        function getLocation() {
-            const status = document.getElementById("status");
-            const latDisplay = document.getElementById("latitude");
-            const lonDisplay = document.getElementById("longitude");
+        let visitedStations = new Set(); // 重複チェック用
+        let watchId = null;
 
-            // ブラウザがGeolocation APIに対応しているか確認
+        // ページ読み込み時に監視開始
+        window.onload = startWatching;
+
+        function startWatching() {
             if (!navigator.geolocation) {
-                status.textContent = "お使いのブラウザは位置情報に対応していません。";
+                alert("位置情報に対応していません");
                 return;
             }
 
-            status.textContent = "取得中...";
+            const options = {
+                enableHighAccuracy: true, // 高精度モード
+                maximumAge: 30000,        // 30秒間キャッシュを利用
+                timeout: 27000            // タイムアウト設定
+            };
 
-            // 位置情報の取得を実行
-            navigator.geolocation.getCurrentPosition(
-                // 成功した時の処理
-                (position) => {
-                    const lat = position.coords.latitude;
-                    const lon = position.coords.longitude;
+            // 位置情報の継続的な監視を開始
+            watchId = navigator.geolocation.watchPosition(checkNearestStation, handleError, options);
+            document.getElementById("status").textContent = "現在地を監視中...";
+        }
 
-                    status.textContent = "取得成功！";
-                    latDisplay.textContent = lat;
-                    lonDisplay.textContent = lon;
-                },
-                // 失敗した時の処理（エラーハンドリング）
-                (error) => {
-                    switch(error.code) {
-                        case error.PERMISSION_DENIED:
-                            status.textContent = "位置情報の利用が拒否されました。";
-                            break;
-                        case error.POSITION_UNAVAILABLE:
-                            status.textContent = "位置情報が利用できません。";
-                            break;
-                        case error.TIMEOUT:
-                            status.textContent = "タイムアウトしました。";
-                            break;
-                        default:
-                            status.textContent = "不明なエラーが発生しました。";
-                            break;
+        function checkNearestStation(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+
+            // HeartRails APIを呼び出す
+            const url = `https://express.heartrails.com/api/json?method=getStations&x=${lon}&y=${lat}`;
+
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    const stations = data.response.station;
+                    if (stations && stations.length > 0) {
+                        const nearest = stations[0].name;
+                        const line = stations[0].line;
+
+                        // まだ追加されていない駅ならリストに追加
+                        if (!visitedStations.has(nearest)) {
+                            addStationToList(nearest, line);
+                        }
                     }
-                }
-            );
+                })
+                .catch(err => console.error("API Error:", err));
+        }
+
+        function addStationToList(name, line) {
+            visitedStations.add(name);
+            const list = document.getElementById("station-list");
+            const now = new Date().toLocaleTimeString();
+            
+            const item = document.createElement("div");
+            item.className = "station-item";
+            item.innerHTML = `
+                <span><strong>${name}駅</strong> (${line})</span>
+                <span class="time">${now} 通過/到着</span>
+            `;
+            list.prepend(item); // 上に新しく追加
+            
+            // 通知（ブラウザの設定による）
+            console.log(`新着駅: ${name}`);
+        }
+
+        function handleError(error) {
+            console.warn(`ERROR(${error.code}): ${error.message}`);
         }
     </script>
 </body>
