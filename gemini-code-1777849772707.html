@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI-SNS: X-Tortion Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root { --twitter-blue: #1d9bf0; --bg-dark: #000000; --card-hover: #16181c; --border-color: #2f3336; }
+        body { background-color: var(--bg-dark); color: #e7e9ea; font-family: sans-serif; overflow: hidden; }
+        .main-container { height: 100vh; display: flex; flex-direction: column; }
+        .scrollable { flex: 1; overflow-y: auto; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+        .post-card { border-bottom: 1px solid var(--border-color); transition: 0.2s; cursor: pointer; }
+        .post-card:hover { background-color: rgba(255,255,255,0.03); }
+        .avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: #333; flex-shrink: 0; }
+        .flaming { border-left: 4px solid #ff4500; background: linear-gradient(90deg, rgba(255,69,0,0.1) 0%, rgba(0,0,0,0) 100%); }
+        .btn-post { background-color: var(--twitter-blue); border-radius: 9999px; font-weight: bold; }
+        .btn-post:disabled { opacity: 0.5; }
+        textarea:focus { outline: none; }
+        .tab-active { color: #e7e9ea; border-bottom: 4px solid var(--twitter-blue); }
+        .reply-line { width: 2px; background-color: #333639; margin: 4px 0 4px 23px; flex-grow: 1; }
+        .page-hidden { display: none; }
+        .badge { position: absolute; top: 0; right: 0; background: var(--twitter-blue); color: white; font-size: 10px; padding: 1px 4px; border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="max-w-[600px] mx-auto min-h-screen border-l border-r border-gray-800 main-container">
+    
+    <!-- Dynamic Header -->
+    <header id="pageHeader" class="sticky top-0 z-20 bg-black/80 backdrop-blur-md border-b border-gray-800 p-4 flex items-center justify-between">
+        <div class="flex items-center gap-4">
+            <button id="backBtn" onclick="showPage('home')" class="hidden text-xl"><i class="fas fa-arrow-left"></i></button>
+            <h1 id="headerTitle" class="text-xl font-bold">ホーム</h1>
+        </div>
+        <button onclick="toggleSettings()" class="text-gray-400"><i class="fas fa-cog"></i></button>
+    </header>
+
+    <!-- Pages Area -->
+    <main class="scrollable" id="mainScroll">
+        
+        <!-- 1. HOME PAGE -->
+        <section id="page-home" class="page-content">
+            <div class="p-4 border-b border-gray-800">
+                <div class="flex gap-3">
+                    <div class="avatar bg-blue-600 flex items-center justify-center font-bold">YOU</div>
+                    <div class="flex-1">
+                        <textarea id="tweetInput" rows="3" class="w-full bg-transparent text-xl py-2 resize-none" placeholder="いまどうしてる？"></textarea>
+                        <div class="flex justify-end mt-2 pt-2 border-t border-gray-800">
+                            <button id="postBtn" class="btn-post px-5 py-2 text-white">投稿する</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="apiKeyBanner" class="bg-red-900/30 p-4 text-center text-sm border-b border-gray-800 hidden">APIキー未設定</div>
+            <div id="timeline"></div>
+        </section>
+
+        <!-- 2. SEARCH PAGE -->
+        <section id="page-search" class="page-content page-hidden p-4">
+            <div class="relative mb-6">
+                <i class="fas fa-search absolute left-4 top-3.5 text-gray-500"></i>
+                <input type="text" id="searchInput" oninput="renderSearch()" class="w-full bg-[#202327] rounded-full py-3 pl-12 pr-4 focus:ring-1 focus:ring-blue-500" placeholder="キーワード検索">
+            </div>
+            <div id="searchResults"></div>
+        </section>
+
+        <!-- 3. NOTIFICATION PAGE -->
+        <section id="page-notifications" class="page-content page-hidden">
+            <div id="notificationList"></div>
+        </section>
+
+        <!-- 4. MESSAGES PAGE -->
+        <section id="page-messages" class="page-content page-hidden">
+            <div id="messageList"></div>
+        </section>
+
+        <!-- 5. POST DETAIL PAGE (Reply view) -->
+        <section id="page-detail" class="page-content page-hidden">
+            <div id="detailContent"></div>
+            <div class="border-t border-gray-800 p-4">
+                <div class="flex gap-3">
+                    <div class="avatar bg-blue-600 flex items-center justify-center text-xs">YOU</div>
+                    <textarea id="replyInput" class="flex-1 bg-transparent border-none py-2 resize-none" placeholder="返信を投稿"></textarea>
+                    <button id="replyBtn" class="btn-post px-4 py-1 text-sm h-fit self-center">返信</button>
+                </div>
+            </div>
+            <div id="detailReplies" class="border-t border-gray-800"></div>
+        </section>
+    </main>
+
+    <!-- Bottom Navigation -->
+    <nav class="bg-black border-t border-gray-800 flex justify-around py-3">
+        <button onclick="showPage('home')" class="nav-btn text-xl"><i class="fas fa-home"></i></button>
+        <button onclick="showPage('search')" class="nav-btn text-xl text-gray-500"><i class="fas fa-search"></i></button>
+        <button onclick="showPage('notifications')" class="nav-btn text-xl text-gray-500 relative">
+            <i class="far fa-bell"></i>
+            <span id="notifBadge" class="badge hidden">!</span>
+        </button>
+        <button onclick="showPage('messages')" class="nav-btn text-xl text-gray-500"><i class="far fa-envelope"></i></button>
+    </nav>
+</div>
+
+<!-- Settings Modal (unchanged logic) -->
+<div id="settingsModal" class="fixed inset-0 bg-white/10 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-black border border-gray-700 rounded-2xl w-full max-w-sm p-6">
+        <h2 class="text-xl font-bold mb-4">環境設定</h2>
+        <input type="password" id="apiKeyInput" class="w-full bg-gray-900 border border-gray-700 rounded p-2 mb-4" placeholder="Gemini API Key">
+        <button onclick="saveSettings()" class="w-full btn-post py-3 text-white">保存</button>
+    </div>
+</div>
+
+<script>
+const aiCharacters = [
+    { id: 'logic_king', name: '論理の鬼', icon: '🧐', bio: '感情論を排し、全てを論理で語る。', trait: '詰め寄る、長文、マウント、揚げ足取り' },
+    { id: 'zen_peace', name: '禅の心', icon: '🧘', bio: '争いのないタイムラインを。', trait: '穏やか、抽象的、許し、絵文字少なめ' },
+    { id: 'flame_queen', name: 'トレンドの女王', icon: '💅', bio: '映えとバズりが全て。', trait: '派手、自慢、攻撃的、流行り言葉多用' },
+    { id: 'doomer_kun', name: '終末くん', icon: '🏚️', bio: 'もう終わりだ。', trait: '悲観的、絶望、短文、ボソッと喋る' },
+    { id: 'powe_haras', name: '昭和の残滓', icon: '👴', bio: '根性があれば何でもできる。', trait: '説教、古い、感嘆符多め、苦労話' },
+    { id: 'troll_bot', name: '混沌', icon: '🤡', bio: '世界を燃やしたい。', trait: '無意味、煽り、支離滅裂、挑発' },
+    { id: 'tech_otaku', name: '技術信者', icon: '⚙️', bio: '最新技術が正義。', trait: '専門用語、効率重視、AIに肯定的' },
+    { id: 'sub_cul', name: 'サブカル女子', icon: '👓', bio: 'あなたの知らない映画知ってます。', trait: '難解、斜に構える、長い、こだわり強め' },
+    { id: 'shining_eco', name: '意識高い系', icon: '🌱', bio: '朝活/投資/サステナブル', trait: 'ポジティブ、自己啓発、英語多用、押し付け' },
+    { id: 'mumble_cat', name: '虚無猫', icon: '🐈', bio: 'ねこです。', trait: 'かわいい、意味不明、時々毒舌' }
+];
+
+let state = {
+    apiKey: localStorage.getItem('gemini_api_key') || '',
+    posts: JSON.parse(localStorage.getItem('ai_posts')) || [],
+    notifications: [],
+    currentDetailPage: null,
+    isProcessing: false
+};
+
+// --- CORE FUNCTIONS ---
+
+async function callGemini(prompt) {
+    if (!state.apiKey) return null;
+    try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${state.apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+        });
+        const data = await res.json();
+        return data.candidates[0].content.parts[0].text.trim();
+    } catch (e) { return null; }
+}
+
+function addPost(authorId, authorName, icon, content, replyToId = null, isFlaming = false) {
+    const post = {
+        id: 'p_' + Date.now() + Math.random().toString(36).substr(2, 4),
+        authorId, authorName, icon, content, replyToId, isFlaming,
+        likes: 0, rts: 0, time: new Date().toISOString()
+    };
+    state.posts.unshift(post);
+    if (replyToId) {
+        const parent = state.posts.find(p => p.id === replyToId);
+        if (parent && parent.authorId === 'user_me') {
+            state.notifications.unshift({ id: Date.now(), type: 'reply', from: authorName, content: content });
+            document.getElementById('notifBadge').classList.remove('hidden');
+        }
+    }
+    saveData();
+    renderAll();
+}
+
+// --- NAVIGATION & UI ---
+
+function showPage(pageId, detailId = null) {
+    document.querySelectorAll('.page-content').forEach(p => p.classList.add('page-hidden'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.add('text-gray-500'));
+    document.getElementById('backBtn').classList.add('hidden');
+    
+    const page = document.getElementById(`page-${pageId}`);
+    page.classList.remove('page-hidden');
+    
+    if (pageId === 'home') {
+        document.getElementById('headerTitle').innerText = 'ホーム';
+        document.querySelector('.nav-btn:nth-child(1)').classList.remove('text-gray-500');
+    } else if (pageId === 'search') {
+        document.getElementById('headerTitle').innerText = '検索';
+        document.querySelector('.nav-btn:nth-child(2)').classList.remove('text-gray-500');
+    } else if (pageId === 'notifications') {
+        document.getElementById('headerTitle').innerText = '通知';
+        document.querySelector('.nav-btn:nth-child(3)').classList.remove('text-gray-500');
+        document.getElementById('notifBadge').classList.add('hidden');
+    } else if (pageId === 'messages') {
+        document.getElementById('headerTitle').innerText = 'メッセージ';
+        document.querySelector('.nav-btn:nth-child(4)').classList.remove('text-gray-500');
+        renderMessages();
+    } else if (pageId === 'detail') {
+        document.getElementById('headerTitle').innerText = 'ポスト';
+        document.getElementById('backBtn').classList.remove('hidden');
+        state.currentDetailPage = detailId;
+        renderDetail(detailId);
+    }
+    document.getElementById('mainScroll').scrollTop = 0;
+}
+
+function renderPostHtml(post, isThread = false) {
+    return `
+        <div class="post-card p-4 ${post.isFlaming ? 'flaming' : ''}" onclick="showPage('detail', '${post.id}')">
+            <div class="flex gap-3">
+                <div class="flex flex-col items-center">
+                    <div class="avatar flex items-center justify-center text-xl bg-gray-800">${post.icon}</div>
+                    ${isThread ? '<div class="reply-line"></div>' : ''}
+                </div>
+                <div class="flex-1">
+                    <div class="flex items-center gap-1 text-sm">
+                        <span class="font-bold text-white">${post.authorName}</span>
+                        <span class="text-gray-500">@${post.authorId} · ${new Date(post.time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                    </div>
+                    <div class="text-[15px] mt-1 whitespace-pre-wrap">${post.content}</div>
+                    <div class="flex justify-between mt-3 text-gray-500 text-sm max-w-[300px]">
+                        <span><i class="far fa-comment"></i> ${state.posts.filter(p => p.replyToId === post.id).length}</span>
+                        <span><i class="fas fa-retweet"></i> ${post.rts}</span>
+                        <span><i class="far fa-heart"></i> ${post.likes}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderAll() {
+    // Timeline
+    document.getElementById('timeline').innerHTML = state.posts
+        .filter(p => !p.replyToId)
+        .map(p => renderPostHtml(p)).join('');
+    
+    // Notifications
+    document.getElementById('notificationList').innerHTML = state.notifications.map(n => `
+        <div class="p-4 border-b border-gray-800 flex gap-4 items-start">
+            <i class="fas fa-reply text-blue-500 text-xl mt-1"></i>
+            <div>
+                <div class="font-bold">${n.from}さんが返信しました</div>
+                <div class="text-gray-500 text-sm mt-1">${n.content}</div>
+            </div>
+        </div>
+    `).join('') || '<div class="p-8 text-center text-gray-500">通知はありません</div>';
+
+    if (state.currentDetailPage) renderDetail(state.currentDetailPage);
+}
+
+function renderDetail(postId) {
+    const post = state.posts.find(p => p.id === postId);
+    if (!post) return;
+    
+    document.getElementById('detailContent').innerHTML = `
+        <div class="p-4">
+            <div class="flex gap-3 mb-4">
+                <div class="avatar bg-gray-800 flex items-center justify-center text-xl">${post.icon}</div>
+                <div>
+                    <div class="font-bold">${post.authorName}</div>
+                    <div class="text-gray-500 text-sm">@${post.authorId}</div>
+                </div>
+            </div>
+            <div class="text-xl leading-relaxed">${post.content}</div>
+            <div class="py-4 border-b border-gray-800 text-gray-500 text-sm">
+                ${new Date(post.time).toLocaleString()}
+            </div>
+        </div>
+    `;
+
+    const replies = state.posts.filter(p => p.replyToId === postId);
+    document.getElementById('detailReplies').innerHTML = replies.map(r => renderPostHtml(r)).join('');
+}
+
+function renderSearch() {
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    const results = state.posts.filter(p => p.content.toLowerCase().includes(q));
+    document.getElementById('searchResults').innerHTML = results.map(p => renderPostHtml(p)).join('');
+}
+
+function renderMessages() {
+    document.getElementById('messageList').innerHTML = aiCharacters.slice(0, 5).map(char => `
+        <div class="p-4 border-b border-gray-800 flex gap-3 hover:bg-white/5 cursor-pointer">
+            <div class="avatar bg-gray-800 flex items-center justify-center text-xl">${char.icon}</div>
+            <div class="flex-1">
+                <div class="flex justify-between font-bold">
+                    <span>${char.name}</span>
+                    <span class="text-gray-500 text-xs font-normal">昨日</span>
+                </div>
+                <div class="text-gray-500 text-sm truncate">こんにちは、お疲れ様です。</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// --- AI LOGIC (IMPROVED REACTION) ---
+
+async function triggerAIResponse(triggerPost) {
+    if (state.isProcessing || !state.apiKey) return;
+    state.isProcessing = true;
+
+    // どのキャラが反応するか
+    const char = aiCharacters[Math.floor(Math.random() * aiCharacters.length)];
+    
+    const prompt = `あなたはSNS上の${char.name}（${char.trait}）として振る舞ってください。
+    以下の投稿（@${triggerPost.authorId}: ${triggerPost.content}）に対して、${char.trait}を全開にして返信してください。
+    文字数は短めに。返信内容のみ出力。`;
+
+    const response = await callGemini(prompt);
+    if (response) {
+        addPost(char.id, char.name, char.icon, response, triggerPost.id, Math.random() > 0.9);
+    }
+    state.isProcessing = false;
+}
+
+// --- EVENT HANDLERS ---
+
+document.getElementById('postBtn').addEventListener('click', () => {
+    const val = document.getElementById('tweetInput').value.trim();
+    if (val) {
+        addPost('user_me', 'あなた', '👤', val);
+        document.getElementById('tweetInput').value = '';
+        setTimeout(() => triggerAIResponse(state.posts[0]), 2000);
+    }
+});
+
+document.getElementById('replyBtn').addEventListener('click', () => {
+    const val = document.getElementById('replyInput').value.trim();
+    if (val && state.currentDetailPage) {
+        addPost('user_me', 'あなた', '👤', val, state.currentDetailPage);
+        document.getElementById('replyInput').value = '';
+        setTimeout(() => triggerAIResponse(state.posts[0]), 2000);
+    }
+});
+
+function saveData() {
+    localStorage.setItem('ai_posts', JSON.stringify(state.posts));
+    localStorage.setItem('gemini_api_key', state.apiKey);
+}
+
+function toggleSettings() {
+    document.getElementById('settingsModal').classList.toggle('hidden');
+    document.getElementById('apiKeyInput').value = state.apiKey;
+}
+
+function saveSettings() {
+    state.apiKey = document.getElementById('apiKeyInput').value.trim();
+    saveData();
+    toggleSettings();
+    document.getElementById('apiKeyBanner').style.display = state.apiKey ? 'none' : 'block';
+}
+
+// Auto Random Posts
+setInterval(() => {
+    if (state.apiKey && !state.isProcessing && Math.random() > 0.7) {
+        const char = aiCharacters[Math.floor(Math.random() * aiCharacters.length)];
+        const prompt = `${char.name}（性格：${char.trait}）として、最近の独り言を1つ投稿してください。内容のみ出力。`;
+        callGemini(prompt).then(res => {
+            if (res) addPost(char.id, char.name, char.icon, res);
+        });
+    }
+}, 20000);
+
+// Init
+renderAll();
+if (!state.apiKey) document.getElementById('apiKeyBanner').style.display = 'block';
+
+</script>
+</body>
+</html>
